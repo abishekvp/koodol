@@ -1,17 +1,34 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { collection, addDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore'
+import { db } from '../firebase/config'
 
 const movieName = ref('')
 const username = ref('')
 const clues = ref(['', '', '', '', ''])
 const submitted = ref(false)
+const notification = ref({ show: false, message: '', type: '' })
 
-// Mock queue length calculation
-const queueLength = ref(5) // Example: 5 puzzles in queue
+// Queue length from Firestore
+const queueLength = ref(0)
 const estimatedDate = computed(() => {
-  const date = new Date()
-  date.setDate(date.getDate() + queueLength.value + 1)
-  return date.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+  if (queueLength.value === 0) return 'Tomorrow'
+  
+  // Calculate date in Indian timezone
+  const now = new Date()
+  const istOffset = 5.5 * 60 * 60 * 1000 // IST is UTC+5:30
+  const istDate = new Date(now.getTime() + istOffset)
+  
+  // Add queue days
+  istDate.setDate(istDate.getDate() + queueLength.value + 1)
+  
+  return istDate.toLocaleDateString('en-IN', { 
+    weekday: 'long', 
+    year: 'numeric', 
+    month: 'long', 
+    day: 'numeric',
+    timeZone: 'Asia/Kolkata'
+  })
 })
 
 const addClue = () => {
@@ -26,26 +43,73 @@ const removeClue = (index) => {
   }
 }
 
-const submitPuzzle = () => {
+const showNotification = (message, type = 'error') => {
+  notification.value = { show: true, message, type }
+  setTimeout(() => {
+    notification.value.show = false
+  }, 4000)
+}
+
+// Fetch queue count (approved + pending puzzles)
+const fetchQueueCount = async () => {
+  try {
+    const q = query(
+      collection(db, 'puzzles'),
+      where('status', 'in', ['approved', 'pending'])
+    )
+    const querySnapshot = await getDocs(q)
+    queueLength.value = querySnapshot.size
+  } catch (e) {
+    console.error('Error fetching queue:', e)
+    queueLength.value = 0
+  }
+}
+
+// Fetch queue on mount
+onMounted(() => {
+  fetchQueueCount()
+})
+
+const submitPuzzle = async () => {
   // Validate
   if (!movieName.value || !username.value || clues.value.some(c => !c.trim())) {
-    alert('Please fill in all fields')
+    showNotification('Please fill in all fields', 'error')
     return
   }
 
-  // TODO: Send to Firebase
-  console.log('Submitting:', { 
-    movieName: movieName.value, 
-    username: username.value,
-    clues: clues.value 
-  })
-  submitted.value = true
+  try {
+    // Save to Firestore
+    await addDoc(collection(db, 'puzzles'), {
+      movieName: movieName.value,
+      submittedBy: username.value,
+      clues: clues.value,
+      status: 'pending',
+      createdAt: serverTimestamp()
+    })
+    
+    submitted.value = true
+    
+    // Reset form
+    movieName.value = ''
+    username.value = ''
+    clues.value = ['', '', '', '', '']
+  } catch (e) {
+    console.error('Error submitting puzzle:', e)
+    showNotification('Failed to submit puzzle. Please try again.', 'error')
+  }
 }
 </script>
 
 <template>
   <div class="submit-view">
-    <h1 class="title">Submit a Puzzle</h1>
+    <!-- Notification Toast -->
+    <transition name="slide-down">
+      <div v-if="notification.show" :class="['notification', notification.type]">
+        {{ notification.message }}
+      </div>
+    </transition>
+
+    <h1 class="title">Publish a Puzzle</h1>
 
     <div v-if="!submitted" class="form-container glass-panel">
       <div class="form-group">
@@ -89,7 +153,8 @@ const submitPuzzle = () => {
       <h2>Thank You, {{ username }}!</h2>
       <p>Your puzzle has been submitted for review.</p>
       <p class="date-info">Estimated Publication Date: <strong>{{ estimatedDate }}</strong></p>
-      <button @click="submitted = false" class="btn-secondary action-btn">
+      <p class="date-disclaimer">* Date might be sooner if queued puzzles are rejected</p>
+      <button @click="submitted = false; fetchQueueCount()" class="btn-secondary action-btn">
         🔄 Submit Another
       </button>
     </div>
@@ -169,6 +234,13 @@ const submitPuzzle = () => {
   padding: 3rem;
 }
 
+.date-disclaimer {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.6);
+  font-style: italic;
+  margin-top: 0.5rem;
+}
+
 .action-btn {
   margin-top: 1.5rem;
   padding: 10px 24px;
@@ -182,5 +254,46 @@ const submitPuzzle = () => {
   background: rgba(255, 255, 255, 0.2);
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.notification {
+  position: fixed;
+  top: 100px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 1rem 2rem;
+  border-radius: 8px;
+  font-weight: 500;
+  z-index: 1000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.notification.error {
+  background: rgba(239, 68, 68, 0.9);
+  border: 1px solid #f87171;
+  color: white;
+}
+
+.notification.success {
+  background: rgba(34, 197, 94, 0.9);
+  border: 1px solid #4ade80;
+  color: white;
+}
+
+.slide-down-enter-active,
+.slide-down-leave-active {
+  transition: all 0.3s ease;
+}
+
+.slide-down-enter-from {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-20px);
+}
+
+.slide-down-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-20px);
 }
 </style>
