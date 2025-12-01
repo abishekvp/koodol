@@ -143,6 +143,7 @@ const login = async () => {
   color: var(--text-color);
   background: linear-gradient(to right, #fff, #a5f3fc);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
   cursor: pointer;
   user-select: none;

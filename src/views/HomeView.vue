@@ -1,97 +1,103 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { collection, query, where, getDocs, limit } from 'firebase/firestore'
-import { db } from '../firebase/config'
-import confetti from 'canvas-confetti'
-import ClueCard from '../components/ClueCard.vue'
-import GuessInput from '../components/GuessInput.vue'
-import GameControls from '../components/GameControls.vue'
+import { ref, computed, onMounted } from "vue";
+import { rotatePuzzleIfNeeded, getCurrentDisplayPuzzle } from "../firebase/puzzleRotation";
+import confetti from "canvas-confetti";
+import ClueCard from "../components/ClueCard.vue";
+import GuessInput from "../components/GuessInput.vue";
+import GameControls from "../components/GameControls.vue";
 
-const puzzle = ref(null)
-const loading = ref(true)
-const noPuzzle = ref(false)
+const puzzle = ref(null);
+const loading = ref(true);
+const noPuzzle = ref(false);
 
-const currentClueIndex = ref(0)
-const gameState = ref('playing') // playing, won, lost
-const feedback = ref('') // '', 'wrong'
-
-
+const currentClueIndex = ref(0);
+const gameState = ref("playing"); // playing, won, lost
+const feedback = ref(""); // '', 'wrong'
 
 const isLastClue = computed(() => {
-  if (!puzzle.value) return false
-  return currentClueIndex.value === puzzle.value.clues.length - 1
-})
+  if (!puzzle.value) return false;
+  return currentClueIndex.value === puzzle.value.clues.length - 1;
+});
 
 onMounted(async () => {
   try {
-    // For now, just get the first approved puzzle. 
-    // In a real app, you'd query by date: where('scheduledDate', '==', today)
-    const q = query(
-      collection(db, 'puzzles'), 
-      where('status', '==', 'approved'),
-      limit(1)
-    )
+    // First, check if rotation is needed and rotate if necessary
+    const rotationResult = await rotatePuzzleIfNeeded();
     
-    const querySnapshot = await getDocs(q)
+    if (!rotationResult.success && rotationResult.reason === 'no_approved_puzzles') {
+      noPuzzle.value = true;
+      loading.value = false;
+      return;
+    }
     
-    if (!querySnapshot.empty) {
-      const doc = querySnapshot.docs[0]
-      puzzle.value = doc.data()
+    // Get the current display puzzle
+    const displayPuzzle = await getCurrentDisplayPuzzle();
+    
+    if (displayPuzzle) {
+      puzzle.value = displayPuzzle;
     } else {
-      noPuzzle.value = true
+      noPuzzle.value = true;
     }
   } catch (e) {
-    console.error("Error fetching puzzle:", e)
-    noPuzzle.value = true
+    console.error("Error fetching puzzle:", e);
+    noPuzzle.value = true;
   } finally {
-    loading.value = false
+    loading.value = false;
   }
-})
+});
 
 const handleGuess = (guess) => {
-  if (gameState.value !== 'playing') return
+  if (gameState.value !== "playing") return;
 
   if (guess.toLowerCase().trim() === puzzle.value.movieName.toLowerCase()) {
-    gameState.value = 'won'
-    feedback.value = ''
-    fireConfetti()
+    gameState.value = "won";
+    feedback.value = "";
+    fireConfetti();
   } else {
-    feedback.value = 'wrong'
+    feedback.value = "wrong";
     setTimeout(() => {
-      feedback.value = ''
-    }, 1000)
+      feedback.value = "";
+    }, 1000);
   }
-}
+};
 
 const nextClue = () => {
   if (currentClueIndex.value < puzzle.value.clues.length - 1) {
-    currentClueIndex.value++
+    currentClueIndex.value++;
   }
-}
+};
 
 const giveUp = () => {
-  gameState.value = 'lost'
-}
+  gameState.value = "lost";
+};
 
 const fireConfetti = () => {
-  const duration = 3000
-  const animationEnd = Date.now() + duration
-  const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0 }
+  const duration = 3000;
+  const animationEnd = Date.now() + duration;
+  const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0 };
 
-  const random = (min, max) => Math.random() * (max - min) + min
+  const random = (min, max) => Math.random() * (max - min) + min;
 
-  const interval = setInterval(function() {
-    const timeLeft = animationEnd - Date.now()
+  const interval = setInterval(function () {
+    const timeLeft = animationEnd - Date.now();
 
     if (timeLeft <= 0) {
-      return clearInterval(interval)
+      return clearInterval(interval);
     }
 
-    const particleCount = 50 * (timeLeft / duration)
-    confetti({ ...defaults, particleCount, origin: { x: random(0.1, 0.3), y: Math.random() - 0.2 } })
-    confetti({ ...defaults, particleCount, origin: { x: random(0.7, 0.9), y: Math.random() - 0.2 } })
-  }, 250)
-}
+    const particleCount = 50 * (timeLeft / duration);
+    confetti({
+      ...defaults,
+      particleCount,
+      origin: { x: random(0.1, 0.3), y: Math.random() - 0.2 },
+    });
+    confetti({
+      ...defaults,
+      particleCount,
+      origin: { x: random(0.7, 0.9), y: Math.random() - 0.2 },
+    });
+  }, 250);
+};
 </script>
 
 <template>
@@ -110,37 +116,51 @@ const fireConfetti = () => {
     </div>
 
     <div v-else>
-      <p class="credit">Puzzle by <span class="username">{{ puzzle.submittedBy }}</span></p>
-      
+      <p class="credit">
+        Puzzle by <span class="username">{{ puzzle.submittedBy }}</span>
+      </p>
+
       <div class="clues-container">
-        <ClueCard 
-          :key="currentClueIndex" 
-          :clue="puzzle.clues[currentClueIndex]" 
+        <ClueCard
+          :key="currentClueIndex"
+          :clue="puzzle.clues[currentClueIndex]"
           :index="currentClueIndex"
         />
       </div>
 
       <div v-if="gameState === 'playing'">
         <GuessInput @guess="handleGuess" />
-        <div v-if="feedback === 'wrong'" class="feedback error">Wrong guess, try again!</div>
-        
-        <GameControls 
-          :can-show-next="!isLastClue" 
+        <div v-if="feedback === 'wrong'" class="feedback error">
+          Wrong guess, try again!
+        </div>
+
+        <GameControls
+          :can-show-next="!isLastClue"
           :is-last-clue="isLastClue"
           @next-clue="nextClue"
           @give-up="giveUp"
         />
       </div>
 
-      <div v-else-if="gameState === 'won'" class="result-card glass-panel success">
+      <div
+        v-else-if="gameState === 'won'"
+        class="result-card glass-panel success"
+      >
         <h2>🎉 Correct!</h2>
-        <p>The movie was <strong>{{ puzzle.movieName }}</strong></p>
+        <p>
+          The movie was <strong>{{ puzzle.movieName }}</strong>
+        </p>
         <p>You solved it in {{ currentClueIndex + 1 }} clues.</p>
       </div>
 
-      <div v-else-if="gameState === 'lost'" class="result-card glass-panel failure">
+      <div
+        v-else-if="gameState === 'lost'"
+        class="result-card glass-panel failure"
+      >
         <h2>Game Over</h2>
-        <p>The movie was <strong>{{ puzzle.movieName }}</strong></p>
+        <p>
+          The movie was <strong>{{ puzzle.movieName }}</strong>
+        </p>
         <p>Better luck next time!</p>
       </div>
     </div>
@@ -184,7 +204,7 @@ const fireConfetti = () => {
 .feedback {
   margin-top: 1rem;
   font-weight: bold;
-  animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+  animation: shake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
 }
 
 .feedback.error {
@@ -207,18 +227,38 @@ const fireConfetti = () => {
 }
 
 @keyframes shake {
-  10%, 90% { transform: translate3d(-1px, 0, 0); }
-  20%, 80% { transform: translate3d(2px, 0, 0); }
-  30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
-  40%, 60% { transform: translate3d(4px, 0, 0); }
+  10%,
+  90% {
+    transform: translate3d(-1px, 0, 0);
+  }
+  20%,
+  80% {
+    transform: translate3d(2px, 0, 0);
+  }
+  30%,
+  50%,
+  70% {
+    transform: translate3d(-4px, 0, 0);
+  }
+  40%,
+  60% {
+    transform: translate3d(4px, 0, 0);
+  }
 }
 
 @keyframes popIn {
-  from { opacity: 0; transform: scale(0.8); }
-  to { opacity: 1; transform: scale(1); }
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
-.loading-state, .no-puzzle-state {
+.loading-state,
+.no-puzzle-state {
   margin-top: 4rem;
   padding: 2rem;
 }
@@ -234,7 +274,9 @@ const fireConfetti = () => {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .sub-text {

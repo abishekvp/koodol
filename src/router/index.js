@@ -4,6 +4,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 const HomeView = () => import('../views/HomeView.vue')
 const SubmitView = () => import('../views/SubmitView.vue')
 const AdminView = () => import('../views/AdminView.vue')
+const HistoryView = () => import('../views/HistoryView.vue')
 
 const router = createRouter({
   history: createWebHistory(),
@@ -12,6 +13,11 @@ const router = createRouter({
       path: '/',
       name: 'home',
       component: HomeView
+    },
+    {
+      path: '/history',
+      name: 'history',
+      component: HistoryView
     },
     {
       path: '/submit',

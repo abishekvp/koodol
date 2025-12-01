@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { collection, addDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore'
+import { collection, addDoc, serverTimestamp, query, getDocs } from 'firebase/firestore'
 import { db } from '../firebase/config'
 
 const movieName = ref('')
@@ -50,15 +50,18 @@ const showNotification = (message, type = 'error') => {
   }, 4000)
 }
 
-// Fetch queue count (approved + pending puzzles)
+// Fetch queue count (approved + waiting puzzles)
 const fetchQueueCount = async () => {
   try {
-    const q = query(
-      collection(db, 'puzzles'),
-      where('status', 'in', ['approved', 'pending'])
-    )
-    const querySnapshot = await getDocs(q)
-    queueLength.value = querySnapshot.size
+    // Count waiting puzzles
+    const waitingQuery = query(collection(db, 'waitingPuzzles'))
+    const waitingSnapshot = await getDocs(waitingQuery)
+    
+    // Count approved puzzles
+    const approvedQuery = query(collection(db, 'approvedPuzzles'))
+    const approvedSnapshot = await getDocs(approvedQuery)
+    
+    queueLength.value = waitingSnapshot.size + approvedSnapshot.size
   } catch (e) {
     console.error('Error fetching queue:', e)
     queueLength.value = 0
@@ -78,12 +81,11 @@ const submitPuzzle = async () => {
   }
 
   try {
-    // Save to Firestore
-    await addDoc(collection(db, 'puzzles'), {
+    // Save to Firestore - waitingPuzzles collection
+    await addDoc(collection(db, 'waitingPuzzles'), {
       movieName: movieName.value,
       submittedBy: username.value,
       clues: clues.value,
-      status: 'pending',
       createdAt: serverTimestamp()
     })
     
